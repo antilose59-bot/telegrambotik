@@ -1,11 +1,11 @@
 # bot.py
 import asyncio
 import logging
-from datetime import datetime, timedelta, timezone
-import aiohttp
 import os
-from dotenv import load_dotenv
+from datetime import datetime, timedelta, timezone
 
+import aiohttp
+from dotenv import load_dotenv
 from aiogram import Bot, Dispatcher, types, F
 from aiogram.types import (
     InlineKeyboardMarkup, InlineKeyboardButton,
@@ -15,16 +15,16 @@ from aiogram.enums import ParseMode
 from aiogram.fsm.storage.memory import MemoryStorage
 from aiogram.client.bot import DefaultBotProperties
 
-# === ЗАГРУЖАЕМ ПЕРЕМЕННЫЕ ИЗ .env ===
+# === Загружаем переменные окружения ===
 load_dotenv()
 API_TOKEN = os.getenv("API_TOKEN")
-CHANNEL_ID = int(os.getenv("CHANNEL_ID"))
-ADMIN_ID = int(os.getenv("ADMIN_ID"))
+CHANNEL_ID = int(os.getenv("CHANNEL_ID", "0"))
+ADMIN_ID = int(os.getenv("ADMIN_ID", "0"))
 PROVIDER_TOKEN = os.getenv("PROVIDER_TOKEN")
 CRYPTOPAY_TOKEN = os.getenv("CRYPTOPAY_TOKEN")
 
 if not API_TOKEN:
-    raise ValueError("Пожалуйста, укажите API_TOKEN в файле .env")
+    raise ValueError("❌ Укажи API_TOKEN в .env")
 
 logging.basicConfig(level=logging.INFO)
 
@@ -34,7 +34,7 @@ bot = Bot(
 )
 dp = Dispatcher(storage=MemoryStorage())
 
-# === ФУНКЦИИ CRYPTOBOT ===
+# === CRYPTOBOT функции ===
 BASE_URL = "https://pay.crypt.bot/api/"
 
 async def get_exchange_rate(asset="TON"):
@@ -56,11 +56,7 @@ async def create_crypto_invoice(amount_usd=1, asset="TON"):
     amount = round(amount_usd * rate, 4)
     url = BASE_URL + "createInvoice"
     headers = {"Crypto-Pay-API-Token": CRYPTOPAY_TOKEN}
-    data = {
-        "amount": amount,
-        "asset": asset,
-        "description": f"Оплата приватного канала ({amount_usd}$ в {asset})"
-    }
+    data = {"amount": amount, "asset": asset, "description": f"Оплата ({amount_usd}$ в {asset})"}
     async with aiohttp.ClientSession() as session:
         async with session.post(url, headers=headers, json=data) as resp:
             result = await resp.json()
@@ -90,118 +86,45 @@ async def wait_for_payment(user_id, invoice_id):
                     member_limit=1,
                     name=f"Оплата от {user_id}"
                 )
-                await bot.send_message(
-                    user_id,
-                    f"✅ Оплата прошла успешно!\n\n"
-                    f"🔗 Ваша ссылка на канал:\n{invite_link.invite_link}\n\n"
-                    f"⏳ Ссылка действует 10 минут и только для одного входа."
-                )
-                await bot.send_message(
-                    ADMIN_ID,
-                    f"💳 Новая оплата CRYPTOBOT!\n"
-                    f"👤 Пользователь: {user_id}\n"
-                    f"🔗 Ссылка: {invite_link.invite_link}"
-                )
+                await bot.send_message(user_id, f"✅ Оплата успешна!\n🔗 {invite_link.invite_link}")
+                await bot.send_message(ADMIN_ID, f"💳 Оплата от {user_id}\n🔗 {invite_link.invite_link}")
             except Exception as e:
                 logging.error(f"Ошибка при создании ссылки: {e}")
             return
 
-# === ХЕНДЛЕРЫ ===
+# === Хендлеры ===
 @dp.message(F.text == "/start")
 async def start(message: types.Message):
-    text = (
-        "Добро пожаловать в *Altushki*\n\n"
-        "- Доступ к приватному материалу.\n"
-        "- Более 3000 видео и 4000 фото.\n"
-        "- Быстрое обновление контента.\n\n"
-        "⛃ *Оплата навсегда:*\n"
-        "- 99р (карта / крипта)\n"
-        "- Цена в звёздах 100 ✰\n\n"
-        "После оплаты вы получите одноразовую ссылку на приватный канал."
-    )
     kb = InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(text="💸 ОПЛАТА ПРИВАТНОГО КАНАЛА", callback_data="pay_options")],
-        [InlineKeyboardButton(text="⭐ ОТЗЫВЫ", url="https://t.me/+FkWlpM6bH5RmNzVi")]
+        [InlineKeyboardButton(text="💸 Оплатить", callback_data="pay_options")],
     ])
-    await message.answer(text, reply_markup=kb)
+    await message.answer("Привет! 👋 Выберите способ оплаты:", reply_markup=kb)
 
 @dp.callback_query(F.data == "pay_options")
 async def payment_options(callback: types.CallbackQuery):
-    await callback.answer()
-    text = "*ВЫБЕРИТЕ СПОСОБ ОПЛАТЫ*"
-    kb = InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(text="💳 УКР КАРТА", callback_data="ukr_card")],
-        [InlineKeyboardButton(text="💳 РУ КАРТА", callback_data="ru_card")],
-        [InlineKeyboardButton(text="💰 CRYPTOBOT", callback_data="crypto_choose")],
-        [InlineKeyboardButton(text="✨ ЗВЁЗДАМИ", callback_data="pay_stars")]
-    ])
-    await callback.message.edit_text(text, reply_markup=kb)
-
-@dp.callback_query(F.data == "crypto_choose")
-async def crypto_choose(callback: types.CallbackQuery):
-    await callback.answer()
     kb = InlineKeyboardMarkup(inline_keyboard=[
         [InlineKeyboardButton(text="💎 TON", callback_data="crypto_TON")],
         [InlineKeyboardButton(text="💵 USDT", callback_data="crypto_USDT")],
         [InlineKeyboardButton(text="₿ BTC", callback_data="crypto_BTC")],
-        [InlineKeyboardButton(text="🔙 Назад", callback_data="pay_options")]
     ])
-    await callback.message.edit_text("Выберите валюту для оплаты:", reply_markup=kb)
+    await callback.message.edit_text("Выберите валюту:", reply_markup=kb)
 
 @dp.callback_query(F.data.startswith("crypto_"))
 async def crypto_payment(callback: types.CallbackQuery):
-    await callback.answer()
     asset = callback.data.split("_")[1]
     try:
         invoice = await create_crypto_invoice(amount_usd=1, asset=asset)
-        pay_url = invoice["pay_url"]
-        invoice_id = invoice["invoice_id"]
-        await callback.message.answer(
-            f"💰 Оплата приватного канала (1$ в {asset})\n\n"
-            f"👉 Перейдите по ссылке:\n{pay_url}\n\n"
-            f"После оплаты бот вышлет доступ ✅"
-        )
-        asyncio.create_task(wait_for_payment(callback.from_user.id, invoice_id))
+        asyncio.create_task(wait_for_payment(callback.from_user.id, invoice["invoice_id"]))
+        await callback.message.answer(f"Оплатите по ссылке:\n{invoice['pay_url']}")
     except Exception as e:
-        await callback.message.answer(f"❌ Ошибка при создании счета: {e}")
+        await callback.message.answer(f"Ошибка: {e}")
 
-# === УКР КАРТА ===
-@dp.callback_query(F.data == "ukr_card")
-async def ukr_card(callback: types.CallbackQuery):
-    text = (
-        "*ОПЛАТА ПРИВАТА КАРТОЙ (УКР):*\n\n"
-        "5168752022336435 | Приватбанк\n"
-        "4441114432331898 | Монобанк\n\n"
-        "⛃ *50 гривен* стоит приватка.\n"
-        "В комментарии укажите свой юзер в Telegram.\n\n"
-        "Если не получается написать комментарий — напишите @altushkisupport с квитанцией.\n"
-        "После успешной оплаты администратор скинет вам ссылку на приватный канал."
-    )
-    kb = InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(text="🔙 Назад", callback_data="pay_options")]
-    ])
-    await callback.message.edit_text(text, reply_markup=kb)
-
-# === РУ КАРТА ===
-@dp.callback_query(F.data == "ru_card")
-async def ru_card(callback: types.CallbackQuery):
-    text = (
-        "*ОПЛАТА ПРИВАТА FUNPAY (РУ):*\n\n"
-        "https://funpay.com/lots/offer?id=51992416 | Funpay\n\n"
-        "После успешной оплаты администратор скинет вам ссылку на приватный канал."
-    )
-    kb = InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(text="🔙 Назад", callback_data="pay_options")]
-    ])
-    await callback.message.edit_text(text, reply_markup=kb)
-
-# === ЗВЁЗДЫ ===
+# === Звёзды ===
 @dp.callback_query(F.data == "pay_stars")
 async def pay_stars(callback: types.CallbackQuery):
-    await callback.answer()
     price = [LabeledPrice(label="Подписка", amount=100)]
     await callback.message.answer_invoice(
-        title="Altushki privat",
+        title="Подписка",
         description="Оплата приватного канала",
         provider_token=PROVIDER_TOKEN,
         currency="XTR",
@@ -215,38 +138,22 @@ async def pre_checkout(pre_checkout_query: PreCheckoutQuery):
 
 @dp.message(F.successful_payment)
 async def payment_success(message: Message):
-    try:
-        await message.answer("✅ Оплата прошла успешно! Создаю ссылку...")
-        expire_time = int((datetime.now(timezone.utc) + timedelta(minutes=10)).timestamp())
-        invite_link = await bot.create_chat_invite_link(
-            chat_id=CHANNEL_ID,
-            expire_date=expire_time,
-            member_limit=1,
-            name=f"Оплата от {message.from_user.id}"
-        )
-        await message.answer(
-            f"🔗 *Ваша персональная ссылка на канал:*\n"
-            f"{invite_link.invite_link}\n\n"
-            f"⏳ Ссылка действует 10 минут и только для одного входа!"
-        )
-        await bot.send_message(
-            ADMIN_ID,
-            f"💳 *Новая оплата звёздами!*\n"
-            f"👤 Пользователь: @{message.from_user.username or 'без username'} "
-            f"(ID: {message.from_user.id})\n"
-            f"🔗 Ссылка: {invite_link.invite_link}"
-        )
-    except Exception as e:
-        logging.error(f"Ошибка при создании ссылки: {e}")
-        await message.answer("❌ Произошла ошибка при создании ссылки. Напишите @altushkisupport")
+    expire_time = int((datetime.now(timezone.utc) + timedelta(minutes=10)).timestamp())
+    invite_link = await bot.create_chat_invite_link(
+        chat_id=CHANNEL_ID,
+        expire_date=expire_time,
+        member_limit=1,
+        name=f"Оплата от {message.from_user.id}"
+    )
+    await message.answer(f"✅ Оплата прошла!\n🔗 {invite_link.invite_link}")
 
 # === MAIN ===
 async def main():
-    await bot.delete_webhook(drop_pending_updates=True)
     await dp.start_polling(bot)
 
 if __name__ == "__main__":
     asyncio.run(main())
+
 
 
 
