@@ -1,4 +1,5 @@
 # bot.py
+# bot.py
 import asyncio
 import logging
 import os
@@ -43,10 +44,10 @@ async def get_exchange_rate(asset="TON"):
     async with aiohttp.ClientSession() as session:
         async with session.get(url, headers=headers) as resp:
             result = await resp.json()
-            for rate in result["result"]:
+            logging.info(f"DEBUG getExchangeRates: {result}")
+            for rate in result.get("result", []):
                 if rate["source"] == "USD" and rate["target"] == asset:
                     return float(rate["rate"])
-            for rate in result["result"]:
                 if rate["source"] == asset and rate["target"] == "USD":
                     return 1 / float(rate["rate"])
     raise Exception(f"Не удалось получить курс {asset}")
@@ -54,13 +55,15 @@ async def get_exchange_rate(asset="TON"):
 async def create_crypto_invoice(amount_usd=1, asset="TON"):
     rate = await get_exchange_rate(asset)
     amount = round(amount_usd * rate, 4)
+
     url = BASE_URL + "createInvoice"
     headers = {"Crypto-Pay-API-Token": CRYPTOPAY_TOKEN}
     data = {"amount": amount, "asset": asset, "description": f"Оплата ({amount_usd}$ в {asset})"}
     async with aiohttp.ClientSession() as session:
         async with session.post(url, headers=headers, json=data) as resp:
             result = await resp.json()
-            if "result" in result:
+            logging.info(f"DEBUG createInvoice response: {result}")
+            if result.get("ok") and "result" in result:
                 return result["result"]
             else:
                 raise Exception(result.get("error", "Неизвестная ошибка"))
@@ -71,6 +74,7 @@ async def check_invoice(invoice_id):
     async with aiohttp.ClientSession() as session:
         async with session.get(url, headers=headers) as resp:
             result = await resp.json()
+            logging.info(f"DEBUG getInvoices: {result}")
             return result["result"]["items"][0]
 
 async def wait_for_payment(user_id, invoice_id):
@@ -114,10 +118,13 @@ async def crypto_payment(callback: types.CallbackQuery):
     asset = callback.data.split("_")[1]
     try:
         invoice = await create_crypto_invoice(amount_usd=1, asset=asset)
-        asyncio.create_task(wait_for_payment(callback.from_user.id, invoice["invoice_id"]))
-        await callback.message.answer(f"Оплатите по ссылке:\n{invoice['pay_url']}")
+        pay_url = invoice["pay_url"]
+        invoice_id = invoice["invoice_id"]
+        await callback.message.answer(f"💰 Оплата приватного канала (1$ в {asset})\n\n👉 {pay_url}")
+        asyncio.create_task(wait_for_payment(callback.from_user.id, invoice_id))
     except Exception as e:
-        await callback.message.answer(f"Ошибка: {e}")
+        logging.error(f"Ошибка при создании счёта: {e}")
+        await callback.message.answer(f"❌ Ошибка при создании счёта: {e}")
 
 # === Звёзды ===
 @dp.callback_query(F.data == "pay_stars")
@@ -149,10 +156,12 @@ async def payment_success(message: Message):
 
 # === MAIN ===
 async def main():
+    await bot.delete_webhook(drop_pending_updates=True)
     await dp.start_polling(bot)
 
 if __name__ == "__main__":
     asyncio.run(main())
+
 
 
 
